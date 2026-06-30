@@ -20,11 +20,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 
-##### 以后每次使用只需：
+### 以后每次使用只需：
 
 ```bash
 source venv/Scripts/activate
 ```
+进入一下
 
 ## 二：三个代码文件
 
