@@ -168,7 +168,7 @@ st.markdown("<hr>", unsafe_allow_html=True)
 # ==========================================
 if menu == "水印嵌入":
     st.header("水印嵌入")
-    st.markdown("将黑白水印Logo隐形嵌入到彩色摄影原图中，肉眼无法察觉。")
+    st.markdown("将Logo以黑白水印形式隐形嵌入到图片中，肉眼无法察觉。")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -250,7 +250,7 @@ if menu == "水印嵌入":
 # ==========================================
 elif menu == "快捷验证":
     st.header("快捷验证")
-    st.markdown("无需原图，直接从网上拿到的可疑盗图中提取水印并验证。")
+    st.markdown("从网上拿到的可疑盗图中提取水印并验证。")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -330,7 +330,7 @@ elif menu == "快捷验证":
 # ==========================================
 elif menu == "取证对比":
     st.header("取证对比")
-    st.markdown("生成完整的证据链对比图，用于版权举证。")
+    st.markdown("生成证据对比图。")
     
     col1, col2, col3 = st.columns(3)
     with col1:
