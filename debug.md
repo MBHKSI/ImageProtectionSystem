@@ -52,6 +52,41 @@ def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
 * **原理**：在保存文件前检查目标路径是否已存在同名文件。
 * **实现**：如果存在，它会自动在后面追加序号，变成 `测试__水印(1).png`、`测试__水印(2).png`，实现完美并存，防止文件被意外覆盖。
 
+### 5. 修复图片输出尺寸被强制拉伸为 512x512 的问题
+**问题描述**：
+在“水印嵌入”功能中，如果上传一张非正方形（如 1920x1080）的长方形图片，打完水印后输出的图片会被强制拉伸/压缩成 512x512 的正方形，导致图片严重变形。
+
+**原因分析**：
+底层脚本 `filling_in.py` 在处理图片时，为了满足 DCT 块处理的要求，强制将原图 `resize` 成了 `COVER_SIZE` (512x512)。但在处理完成后，直接将这个 512x512 的矩阵保存为了输出图片，没有恢复原始尺寸。
+
+**修复方案**：
+修改 `filling_in.py`，在 `resize` 之前记录原图的真实尺寸 `original_h, original_w = tmp_cover.shape[:2]`。在完成水印嵌入后，将输出矩阵重新 `resize` 回 `(original_w, original_h)` 再进行保存。同时，同步修改了 `comparative_proof.py` 和 `verify.py` 中的提取逻辑，确保在提取水印时先将图片缩放回 512x512 的标准尺寸。
+
+### 6. 修复 Streamlit 前端 `use_column_width` 弃用警告
+**问题描述**：
+前端页面在展示图片时，图片上方出现黄色警告文字：`The use_column_width parameter has been deprecated and will be removed in a future release. Please utilize the width parameter instead.`
+
+**原因分析**：
+在尝试解决前端图片显示比例问题时，使用了 `use_column_width="auto"` 参数。但在较新版本的 Streamlit 中，该参数已被弃用。
+
+**修复方案**：
+将 `app.py` 中所有的 `use_column_width="auto"` 替换为官方推荐的新参数 `use_container_width=True`。由于底层输出图片的尺寸拉伸 Bug 已修复，现在使用 `use_container_width=True` 既能保证图片在网页列中自适应宽度，又不会导致图片比例失调。
+
+### 7. 修复 PNG 图片打入水印后丢失透明背景（变黑底）的问题
+**问题描述**：
+如果上传一张带有透明背景的 PNG 图片（如 Logo、贴纸），打完水印后输出的图片透明背景会变成黑色，丢失了透明度（Alpha 通道）。
+
+**原因分析**：
+1. OpenCV 的 `cv2.imdecode` 默认使用 `cv2.IMREAD_COLOR` 模式读取图片，这会直接丢弃 PNG 的 Alpha 通道，只保留 BGR 三个通道。
+2. 即使保留了 Alpha 通道，水印嵌入算法（DCT 变换）也只能处理 BGR 通道，无法直接处理 4 通道的图像。
+
+**修复方案**：
+1. 修改 `cv_imread` 函数，使用 `cv2.IMREAD_UNCHANGED` 模式读取图片，以保留完整的 4 通道（BGRA）。
+2. 在 `filling_in.py` 中，打水印前先判断图片是否有 Alpha 通道。如果有，则将 BGR 通道和 Alpha 通道分离。
+3. 仅对 BGR 通道进行 DCT 水印嵌入处理。
+4. 处理完成后，将打好水印的 BGR 通道与之前分离出来的原始 Alpha 通道重新合并（`cv2.merge`），然后再保存。
+5. 同步修改 `comparative_proof.py` 和 `verify.py`，在读取图片时如果发现是 4 通道，则自动转换为 3 通道 BGR 以兼容提取算法。
+
 ---
 
 ## 第二部分：防御性编程与潜在隐患分析

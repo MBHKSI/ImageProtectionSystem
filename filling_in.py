@@ -129,7 +129,7 @@ def scan(folder):
                    if os.path.splitext(f)[1].lower() in exts])
 
 
-def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
+def cv_imread(file_path, flags=cv2.IMREAD_UNCHANGED):
     if not os.path.exists(file_path):
         print(f"[警告] 文件不存在: {file_path}")
         logger.warning(f"文件不存在: {file_path}")
@@ -145,7 +145,11 @@ def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
 def cv_imwrite(file_path, img):
     try:
         ext = os.path.splitext(file_path)[1]
-        cv2.imencode(ext, img)[1].tofile(file_path)
+        # 对于 PNG 图片，使用特定的压缩参数以保留透明通道
+        if ext.lower() == '.png':
+            cv2.imencode(ext, img, [cv2.IMWRITE_PNG_COMPRESSION, 3])[1].tofile(file_path)
+        else:
+            cv2.imencode(ext, img)[1].tofile(file_path)
         return True
     except Exception as e:
         print(f"[警告] 写入文件失败 {file_path}: {e}")
@@ -179,7 +183,20 @@ def main():
                 txt_log.append(msg)
                 logger.warning(msg)
                 continue
-            cover = cv2.resize(tmp_cover, (COVER_SIZE, COVER_SIZE))
+            
+            # 记录原始尺寸和通道数
+            original_h, original_w = tmp_cover.shape[:2]
+            has_alpha = tmp_cover.shape[2] == 4 if len(tmp_cover.shape) == 3 else False
+            
+            # 如果有透明通道，分离出来
+            if has_alpha:
+                bgr_cover = tmp_cover[:, :, :3]
+                alpha_channel = tmp_cover[:, :, 3]
+            else:
+                bgr_cover = tmp_cover
+                alpha_channel = None
+            
+            cover = cv2.resize(bgr_cover, (COVER_SIZE, COVER_SIZE))
             
             # 检查是否已经打过水印，防止二次覆盖
             is_watermarked, ratio = check_already_watermarked(cover)
@@ -201,8 +218,19 @@ def main():
             _, wm_bin = cv2.threshold(wm_raw, 127, 1, cv2.THRESH_BINARY)
 
             watermarked = embed(cover, wm_bin)
+            
+            # 将打完水印的图片恢复为原始尺寸
+            watermarked_restored = cv2.resize(watermarked, (original_w, original_h))
+            
+            # 如果原图有透明通道，把透明通道拼回去
+            if has_alpha:
+                watermarked_restored = cv2.merge((watermarked_restored[:, :, 0], 
+                                                  watermarked_restored[:, :, 1], 
+                                                  watermarked_restored[:, :, 2], 
+                                                  alpha_channel))
+            
             wm_out = get_unique_filepath(OUT_DIR, key)
-            cv_imwrite(wm_out, watermarked)
+            cv_imwrite(wm_out, watermarked_restored)
 
             wm_ext = extract(watermarked)
             psnr = 20 * np.log10(255.0 / np.sqrt(np.mean(

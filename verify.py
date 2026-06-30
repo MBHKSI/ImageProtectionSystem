@@ -63,9 +63,12 @@ def get_unique_filepath(directory, base_name, ext=".png"):
 
 
 def extract(image_bgr):
+    # 提取水印时，必须将图片缩放回 512x512 的标准尺寸，因为水印是按这个尺寸打入的
     if image_bgr.shape[:2] != (COVER_SIZE, COVER_SIZE):
-        image_bgr = cv2.resize(image_bgr, (COVER_SIZE, COVER_SIZE))
-    ycrcb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2YCrCb)
+        image_bgr_resized = cv2.resize(image_bgr, (COVER_SIZE, COVER_SIZE))
+    else:
+        image_bgr_resized = image_bgr
+    ycrcb = cv2.cvtColor(image_bgr_resized, cv2.COLOR_BGR2YCrCb)
     Y = ycrcb[:, :, 0].astype(np.float32)
     ext = np.zeros((WM_SIZE, WM_SIZE), dtype=np.uint8)
     for i in range(0, COVER_SIZE, BLOCK_SIZE):
@@ -238,13 +241,16 @@ def make_verify_chart(input_img, extracted_wm, ref_bin, ref_name, key):
     return nc, fig
 
 
-def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
+def cv_imread(file_path, flags=cv2.IMREAD_UNCHANGED):
     if not os.path.exists(file_path):
         print(f"[警告] 文件不存在: {file_path}")
         logger.warning(f"文件不存在: {file_path}")
         return None
     try:
         img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), flags)
+        # 如果是 4 通道（带透明度），转换为 3 通道 BGR，因为提取逻辑只处理 BGR
+        if img is not None and len(img.shape) == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
     except Exception as e:
         print(f"[警告] 读取文件失败 {file_path}: {e}")

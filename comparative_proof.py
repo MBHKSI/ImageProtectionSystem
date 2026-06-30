@@ -57,9 +57,12 @@ def get_unique_filepath(directory, base_name, ext=".png"):
 
 
 def extract(image_bgr):
+    # 提取水印时，必须将图片缩放回 512x512 的标准尺寸，因为水印是按这个尺寸打入的
     if image_bgr.shape[:2] != (COVER_SIZE, COVER_SIZE):
-        image_bgr = cv2.resize(image_bgr, (COVER_SIZE, COVER_SIZE))
-    ycrcb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2YCrCb)
+        image_bgr_resized = cv2.resize(image_bgr, (COVER_SIZE, COVER_SIZE))
+    else:
+        image_bgr_resized = image_bgr
+    ycrcb = cv2.cvtColor(image_bgr_resized, cv2.COLOR_BGR2YCrCb)
     Y = ycrcb[:, :, 0].astype(np.float32)
     ext = np.zeros((WM_SIZE, WM_SIZE), dtype=np.uint8)
     for i in range(0, COVER_SIZE, BLOCK_SIZE):
@@ -90,13 +93,16 @@ def scan(folder):
                    if os.path.splitext(f)[1].lower() in exts])
 
 
-def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
+def cv_imread(file_path, flags=cv2.IMREAD_UNCHANGED):
     if not os.path.exists(file_path):
         print(f"[警告] 文件不存在: {file_path}")
         logger.warning(f"文件不存在: {file_path}")
         return None
     try:
         img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), flags)
+        # 如果是 4 通道（带透明度），转换为 3 通道 BGR，因为对比逻辑只处理 BGR
+        if img is not None and len(img.shape) == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return img
     except Exception as e:
         print(f"[警告] 读取文件失败 {file_path}: {e}")
@@ -234,18 +240,25 @@ def make_chart(cover, wmed, ref_bin, extracted_wm, ref_name, key):
     ax_bar.xaxis.set_label_position("top")
     ax_bar.tick_params(left=False, labelleft=False)
 
-    # 顶部总结
+    # 顶部总结 -> 移到底部槽的上方
+    is_same_image = img_changed_pct < 30.0
+    
     if nc > 0.8:
         verdict = (f"【取证成功】水印像素匹配率 {wm_rate:.1f}%，"
-                   f"NC={nc:.4f}。该图片可以证明出自你的作品！")
+                   f"NC={nc:.4f}。该图片包含你的水印！")
         vcolor = "#27ae60"
     else:
         verdict = (f"【不匹配】匹配率仅 {wm_rate:.1f}%（≈随机50%），"
                    f"NC={nc:.4f}。该图片未嵌入此水印。")
         vcolor = "#c0392b"
-    fig.suptitle(verdict, fontsize=18, fontweight="bold", color=vcolor, y=0.995)
+        
+    if not is_same_image:
+        verdict += "\n⚠️ 原图和水印图不匹配，请检查是否是同一张图！"
+        vcolor = "#d35400"
+        
+    ax_bar.set_title(verdict, fontsize=15, fontweight="bold", color=vcolor, pad=15)
 
-    return nc, fig
+    return nc, fig, is_same_image
 
 
 def main():
@@ -283,13 +296,13 @@ def main():
             if cn in os.path.basename(wmed_p) or os.path.splitext(cn)[0] in wmed_name:
                 tmp_cover = cv_imread(cp)
                 if tmp_cover is not None:
-                    matched_cover = cv2.resize(tmp_cover, (COVER_SIZE, COVER_SIZE))
+                    matched_cover = cv2.resize(tmp_cover, (wmed.shape[1], wmed.shape[0]))
                 break
                 
         if matched_cover is None:
             tmp_cover = cv_imread(covers[0])
             if tmp_cover is not None:
-                matched_cover = cv2.resize(tmp_cover, (COVER_SIZE, COVER_SIZE))
+                matched_cover = cv2.resize(tmp_cover, (wmed.shape[1], wmed.shape[0]))
             else:
                 msg = f"[跳过] 无法读取默认原图，跳过当前水印图处理"
                 print(msg)
@@ -311,8 +324,10 @@ def main():
             _, ref_bin = cv2.threshold(ref_raw, 127, 255, cv2.THRESH_BINARY)
 
             print(f"[{key}]")
-            nc, fig = make_chart(matched_cover, wmed, ref_bin, ext_wm,
+            nc, fig, is_same_image = make_chart(matched_cover, wmed, ref_bin, ext_wm,
                                  os.path.basename(wm_p), key)
+            if not is_same_image:
+                txt_log.append(f"[警告] {key} -> 原图和含水印图不匹配")
             out_path = get_unique_filepath(OUT_DIR, f"{key}_证据对比图")
             fig.savefig(out_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
